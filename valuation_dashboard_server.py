@@ -3,15 +3,29 @@ import json
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from valuation_dashboard import build_html, build_payload
+from valuation_dashboard import build_html, build_live_payload, build_payload
 
 
 CACHE_TTL_SECONDS = 900
 _cache_lock = threading.Lock()
 _cache_payload = None
 _cache_time = 0.0
+SNAPSHOT_FILE = Path(__file__).with_name("valuation_dashboard.html")
+
+
+def load_snapshot_payload():
+    if not SNAPSHOT_FILE.exists():
+        return None
+
+    text = SNAPSHOT_FILE.read_text(encoding="utf-8")
+    marker = '<script id="valuation-data" type="application/json">'
+    if marker not in text:
+        return None
+    payload = text.split(marker, 1)[1].split("</script>", 1)[0]
+    return json.loads(payload)
 
 
 def get_payload(force_refresh=False):
@@ -26,11 +40,15 @@ def get_payload(force_refresh=False):
             return _cache_payload
 
     try:
-        payload = build_payload()
+        snapshot_payload = load_snapshot_payload()
+        payload = build_live_payload(snapshot_payload) if snapshot_payload is not None else build_payload()
     except Exception:
         with _cache_lock:
             if _cache_payload is not None:
                 return _cache_payload
+        snapshot_payload = load_snapshot_payload()
+        if snapshot_payload is not None:
+            return snapshot_payload
         raise
 
     with _cache_lock:
