@@ -2,7 +2,6 @@ import hashlib
 import json
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -17,7 +16,6 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/123.0.0.0 Safari/537.36"
 )
-LEGU_MAX_WORKERS = 6
 
 CARD_CONFIGS = [
     {
@@ -968,36 +966,7 @@ def merge_snapshot_point(points, snapshot):
     return month_end_points(merged)
 
 
-def build_card(config, danjuan_snapshots):
-    snapshots = {}
-    danjuan_item = danjuan_snapshots.get(config.get("danjuan_code")) if config.get("danjuan_code") else None
-    if danjuan_item:
-        snapshots = build_snapshots(danjuan_item)
-
-    pe_points = []
-    pb_points = []
-    try:
-        legu_client = LeguClient()
-        if config["type"] == "all_a":
-            pe_rows = legu_client.fetch_all_a_pe()
-            pb_rows = legu_client.fetch_all_a_pb()
-            pe_points = normalize_points(pe_rows, "averagePETTM")
-            pb_points = normalize_points(pb_rows, "equalWeightAveragePB")
-        elif config["type"] == "market":
-            pe_rows = legu_client.fetch_market_pe(config["market_id"])
-            pb_rows = legu_client.fetch_market_pb(config["market_id"])
-            pe_points = normalize_points(pe_rows, "pe")
-            pb_points = normalize_points(pb_rows, "addPb")
-        else:
-            pe_rows = legu_client.fetch_index_pe(config["index_code"])
-            pb_rows = legu_client.fetch_index_pb(config["index_code"])
-            pe_points = normalize_points(pe_rows, config.get("legu_pe_key", "ttmPe"))
-            pb_points = normalize_points(pb_rows, "addPb")
-    except Exception:
-        # Preserve the page even if one upstream call fails.
-        pe_points = []
-        pb_points = []
-
+def build_card(config, pe_points, pb_points, snapshots):
     pe_points = merge_snapshot_point(pe_points, snapshots.get("pe"))
     pb_points = merge_snapshot_point(pb_points, snapshots.get("pb"))
 
@@ -1013,9 +982,46 @@ def build_card(config, danjuan_snapshots):
     }
 
 
+def fetch_legu_points(legu_client, config):
+    if config["type"] == "all_a":
+        pe_rows = legu_client.fetch_all_a_pe()
+        pb_rows = legu_client.fetch_all_a_pb()
+        return normalize_points(pe_rows, "averagePETTM"), normalize_points(pb_rows, "equalWeightAveragePB")
+
+    if config["type"] == "market":
+        pe_rows = legu_client.fetch_market_pe(config["market_id"])
+        pb_rows = legu_client.fetch_market_pb(config["market_id"])
+        return normalize_points(pe_rows, "pe"), normalize_points(pb_rows, "addPb")
+
+    pe_rows = legu_client.fetch_index_pe(config["index_code"])
+    pb_rows = legu_client.fetch_index_pb(config["index_code"])
+    return normalize_points(pe_rows, config.get("legu_pe_key", "ttmPe")), normalize_points(pb_rows, "addPb")
+
+
 def build_cards(danjuan_snapshots):
-    with ThreadPoolExecutor(max_workers=min(LEGU_MAX_WORKERS, len(CARD_CONFIGS))) as executor:
-        return list(executor.map(lambda config: build_card(config, danjuan_snapshots), CARD_CONFIGS))
+    cards = []
+    legu_client = LeguClient()
+    for config in CARD_CONFIGS:
+        snapshots = {}
+        danjuan_item = danjuan_snapshots.get(config.get("danjuan_code")) if config.get("danjuan_code") else None
+        if danjuan_item:
+            snapshots = build_snapshots(danjuan_item)
+
+        pe_points = []
+        pb_points = []
+        try:
+            pe_points, pb_points = fetch_legu_points(legu_client, config)
+        except Exception:
+            try:
+                legu_client = LeguClient()
+                pe_points, pb_points = fetch_legu_points(legu_client, config)
+            except Exception:
+                pe_points = []
+                pb_points = []
+
+        cards.append(build_card(config, pe_points, pb_points, snapshots))
+
+    return cards
 
 
 def latest_date(cards):
