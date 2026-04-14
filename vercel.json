@@ -2,23 +2,15 @@
   "rewrites": [
     {
       "source": "/",
-      "destination": "/api/index"
+      "destination": "/valuation_dashboard.html"
     },
     {
       "source": "/index.html",
-      "destination": "/api/index"
+      "destination": "/valuation_dashboard.html"
     },
     {
       "source": "/data",
       "destination": "/api/data"
     }
-  ],
-  "functions": {
-    "api/index.py": {
-      "maxDuration": 10
-    },
-    "api/data.py": {
-      "maxDuration": 60
-    }
-  }
+  ]
 }
