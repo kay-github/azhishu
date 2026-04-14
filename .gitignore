@@ -1,0 +1,8 @@
+*
+!.gitignore
+!README.md
+!requirements.txt
+!start_valuation_dashboard.bat
+!valuation_dashboard.py
+!valuation_dashboard_server.py
+!valuation_dashboard.html
