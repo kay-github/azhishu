@@ -2,6 +2,9 @@
 !.gitignore
 !README.md
 !app.py
+!api/
+!api/index.py
+!api/data.py
 !requirements.txt
 !start_valuation_dashboard.bat
 !valuation_dashboard.py
