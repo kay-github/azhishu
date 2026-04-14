@@ -95,6 +95,7 @@ CARD_CONFIGS = [
         "tag": "指数口径",
         "type": "index",
         "index_code": "930050.CSI",
+        "legu_pe_key": "addTtmPe",
     },
     {
         "id": "zz100",
@@ -110,6 +111,7 @@ CARD_CONFIGS = [
         "tag": "指数口径",
         "type": "index",
         "index_code": "000510.CSI",
+        "legu_pe_key": "addTtmPe",
     },
 ]
 
@@ -989,7 +991,7 @@ def build_card(config, danjuan_snapshots):
         else:
             pe_rows = legu_client.fetch_index_pe(config["index_code"])
             pb_rows = legu_client.fetch_index_pb(config["index_code"])
-            pe_points = normalize_points(pe_rows, "ttmPe")
+            pe_points = normalize_points(pe_rows, config.get("legu_pe_key", "ttmPe"))
             pb_points = normalize_points(pb_rows, "addPb")
     except Exception:
         # Preserve the page even if one upstream call fails.
