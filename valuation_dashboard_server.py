@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from valuation_dashboard import build_html, build_live_payload, build_payload
+from valuation_dashboard import build_html, build_payload
 
 
 CACHE_TTL_SECONDS = 900
@@ -40,8 +40,7 @@ def get_payload(force_refresh=False):
             return _cache_payload
 
     try:
-        snapshot_payload = load_snapshot_payload()
-        payload = build_live_payload(snapshot_payload) if snapshot_payload is not None else build_payload()
+        payload = build_payload()
     except Exception:
         with _cache_lock:
             if _cache_payload is not None:

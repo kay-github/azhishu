@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -10,7 +10,6 @@ import requests
 
 OUTPUT_FILE = Path("valuation_dashboard.html")
 BASE_URL = "https://legulegu.com"
-DANJUAN_URL = "https://danjuanfunds.com"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -21,9 +20,10 @@ CARD_CONFIGS = [
     {
         "id": "all-a",
         "name": "全部A股",
-        "tag": "近似口径",
+        "tag": "等权口径",
         "type": "all_a",
-        "danjuan_code": "SZ399317",
+        "pe_key": "averagePETTM",
+        "pb_key": "equalWeightAveragePB",
     },
     {
         "id": "shanghai",
@@ -35,10 +35,9 @@ CARD_CONFIGS = [
     {
         "id": "shenzhen",
         "name": "深证成指",
-        "tag": "指数口径",
+        "tag": "市场口径",
         "type": "market",
         "market_id": "2",
-        "danjuan_code": "SZ399001",
     },
     {
         "id": "star50",
@@ -46,15 +45,14 @@ CARD_CONFIGS = [
         "tag": "指数口径",
         "type": "index",
         "index_code": "000688.SH",
-        "danjuan_code": "SH000688",
+        "pe_key": "addTtmPe",
     },
     {
         "id": "gem",
         "name": "创业板指",
-        "tag": "指数口径",
+        "tag": "市场口径",
         "type": "market",
         "market_id": "4",
-        "danjuan_code": "SZ399006",
     },
     {
         "id": "hs300",
@@ -62,7 +60,7 @@ CARD_CONFIGS = [
         "tag": "指数口径",
         "type": "index",
         "index_code": "000300.SH",
-        "danjuan_code": "SH000300",
+        "pe_key": "addTtmPe",
     },
     {
         "id": "zz500",
@@ -70,7 +68,7 @@ CARD_CONFIGS = [
         "tag": "指数口径",
         "type": "index",
         "index_code": "000905.SH",
-        "danjuan_code": "SH000905",
+        "pe_key": "addTtmPe",
     },
     {
         "id": "zz1000",
@@ -78,7 +76,7 @@ CARD_CONFIGS = [
         "tag": "指数口径",
         "type": "index",
         "index_code": "000852.SH",
-        "danjuan_code": "SH000852",
+        "pe_key": "addTtmPe",
     },
     {
         "id": "zz2000",
@@ -86,6 +84,7 @@ CARD_CONFIGS = [
         "tag": "指数口径",
         "type": "index",
         "index_code": "932000.CSI",
+        "pe_key": "addTtmPe",
     },
     {
         "id": "a50",
@@ -93,7 +92,7 @@ CARD_CONFIGS = [
         "tag": "指数口径",
         "type": "index",
         "index_code": "930050.CSI",
-        "legu_pe_key": "addTtmPe",
+        "pe_key": "addTtmPe",
     },
     {
         "id": "zz100",
@@ -101,7 +100,7 @@ CARD_CONFIGS = [
         "tag": "指数口径",
         "type": "index",
         "index_code": "000903.SH",
-        "danjuan_code": "SH000903",
+        "pe_key": "addTtmPe",
     },
     {
         "id": "a500",
@@ -109,7 +108,7 @@ CARD_CONFIGS = [
         "tag": "指数口径",
         "type": "index",
         "index_code": "000510.CSI",
-        "legu_pe_key": "addTtmPe",
+        "pe_key": "addTtmPe",
     },
 ]
 
@@ -429,7 +428,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="topbar">
       <div class="title-wrap">
         <h1 id="page-title">估值分析（近10年）</h1>
-        <p>公共数据复刻版。切换周期和指标后，卡片上的当前值、分位数、危险值/中位数/机会值会同步重算。</p>
+        <p>统一使用乐咕乐股公开数据源的估值面板复刻版。页面展示的是随仓库自动更新并发布的静态快照。</p>
       </div>
       <div class="controls">
         <div class="btn-group" id="period-buttons"></div>
@@ -444,7 +443,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
       <div>
         <strong>估值区间说明</strong>
-        <span>危险值 = 80% 分位，中位数 = 50% 分位，机会值 = 20% 分位。页面通过本地服务实时拉取公共数据，并每 15 分钟自动刷新一次。</span>
+        <span>危险值 = 80% 分位，中位数 = 50% 分位，机会值 = 20% 分位。各卡片分位会按当前所选区间的历史样本重新计算；若指数历史不足该区间，则按实际可得样本计算。</span>
       </div>
     </div>
 
@@ -452,10 +451,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <div class="footer">
       <strong>口径说明：</strong>
-      <div>1. 数据源来自乐咕乐股公开接口，页面为静态快照，不依赖后端。</div>
-      <div>2. “全部A股”卡片使用公开“全部A股等权估值”替代截图中的“万得全A”。</div>
-      <div>3. “上证 / 深证 / 创业板”使用公开市场板块估值口径；其余卡片使用公开指数估值口径。</div>
-      <div>4. 优先使用 Danjuan 当前估值快照来贴近目标产品；历史曲线继续使用稳定公共历史源，以兼顾覆盖度和可持续更新。</div>
+      <div>1. 当前版本统一使用乐咕乐股公开接口，不再混用 Danjuan、东方财富等其他估值源。</div>
+      <div>2. `PE(TTM)` 统一规则为：全部A股取 `averagePETTM`，市场卡取 `pe`，指数卡取 `addTtmPe`；`PB(LF)` 统一规则为：全部A股取 `equalWeightAveragePB`，其余卡片取 `addPb`。</div>
+      <div>3. 首页是随仓库自动更新并发布的静态快照，目的是保证线上首屏稳定、口径一致；如需拉取 JSON，可使用同源 `/data` 接口读取当前快照数据。</div>
+      <div>4. 新指数的真实历史较短，例如中证2000 / 中证A50 / 中证A500 不具备完整 10Y / 15Y / 20Y 历史，因此长周期展示会自动退化为可得样本。</div>
     </div>
   </div>
 
@@ -678,17 +677,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }
 
       const values = points.map((point) => point.value).filter(Number.isFinite);
-      const snapshot = card.snapshots && card.snapshots[state.metric] ? card.snapshots[state.metric] : null;
-      const current = snapshot && Number.isFinite(snapshot.value) ? snapshot.value : points[points.length - 1].value;
+      const current = points[points.length - 1].value;
       const stats = {
         q20: quantile(values, 0.2),
         q50: quantile(values, 0.5),
         q80: quantile(values, 0.8),
         percentile: percentile(values, current),
       };
-      const displayPercentile = snapshot && state.years === 10 && Number.isFinite(snapshot.percentile)
-        ? snapshot.percentile
-        : stats.percentile;
 
       const chart = renderChart(points, stats);
 
@@ -701,7 +696,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </div>
             <div class="metric-row">
               <span><small>${state.metric === 'pe' ? 'PE' : 'PB'}</small>${formatValue(current)}</span>
-              <span><small>分位数</small>${formatPercent(displayPercentile)}</span>
+              <span><small>分位数</small>${formatPercent(stats.percentile)}</span>
             </div>
           </div>
           <div class="chart-wrap">${chart}</div>
@@ -749,31 +744,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       cardGrid.innerHTML = dataModel.cards.map(buildCard).join('');
     }
 
-    function applyData(nextData) {
-      dataModel = nextData;
-      rerender();
-    }
-
-    async function refreshLiveData() {
-      if (!window.location.protocol.startsWith('http')) {
-        return;
-      }
-
-      try {
-        const response = await fetch('./data?_=' + Date.now(), { cache: 'no-store' });
-        if (!response.ok) {
-          return;
-        }
-        const nextData = await response.json();
-        applyData(nextData);
-      } catch (error) {
-        console.warn('Live data refresh failed:', error);
-      }
-    }
-
     rerender();
-    refreshLiveData();
-    window.setInterval(refreshLiveData, 15 * 60 * 1000);
   </script>
 </body>
 </html>
@@ -861,28 +832,6 @@ class LeguClient:
             f"{BASE_URL}/api/stock-data/market-index-pb",
             params={"marketId": "ALL", "token": self.token},
         )
-
-
-class DanjuanClient:
-    def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "User-Agent": USER_AGENT,
-                "Referer": f"{DANJUAN_URL}/djmodule/value-center",
-                "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "zh-CN,zh;q=0.9",
-            }
-        )
-
-    def fetch_snapshots(self):
-        response = self.session.get(f"{DANJUAN_URL}/djapi/index_eva/dj", timeout=20)
-        response.raise_for_status()
-        payload = response.json().get("data") or {}
-        items = payload.get("items") or []
-        return {item.get("index_code"): item for item in items if item.get("index_code")}
-
-
 def month_end_points(records):
     records = sorted(records, key=lambda item: item["date"])
     if not records:
@@ -914,62 +863,7 @@ def normalize_points(records, value_key):
             continue
         points.append({"date": str(date), "value": round(value, 4)})
     return month_end_points(points)
-
-
-def format_snapshot_date(item):
-    date_text = item.get("date")
-    ts = item.get("ts")
-    if date_text and ts:
-        shanghai_tz = timezone(timedelta(hours=8))
-        year = datetime.fromtimestamp(int(ts) / 1000, tz=shanghai_tz).year
-        return f"{year}-{date_text.replace('/', '-')}"
-    if date_text:
-        year = datetime.now().year
-        return f"{year}-{date_text.replace('/', '-')}"
-    if ts:
-        shanghai_tz = timezone(timedelta(hours=8))
-        return datetime.fromtimestamp(int(ts) / 1000, tz=shanghai_tz).strftime("%Y-%m-%d")
-    return None
-
-
-def build_snapshots(item):
-    snapshot_date = format_snapshot_date(item)
-    snapshots = {}
-    pe_value = item.get("pe")
-    pb_value = item.get("pb")
-    pe_percentile = item.get("pe_percentile")
-    pb_percentile = item.get("pb_percentile")
-
-    if pe_value not in (None, ""):
-        snapshots["pe"] = {
-            "value": round(float(pe_value), 4),
-            "percentile": round(float(pe_percentile) * 100, 2) if pe_percentile not in (None, "") else None,
-            "date": snapshot_date,
-            "source": "danjuan",
-        }
-    if pb_value not in (None, ""):
-        snapshots["pb"] = {
-            "value": round(float(pb_value), 4),
-            "percentile": round(float(pb_percentile) * 100, 2) if pb_percentile not in (None, "") else None,
-            "date": snapshot_date,
-            "source": "danjuan",
-        }
-    return snapshots
-
-
-def merge_snapshot_point(points, snapshot):
-    if not snapshot or not snapshot.get("date") or snapshot.get("value") in (None, ""):
-        return points
-
-    merged = [dict(point) for point in points]
-    merged.append({"date": snapshot["date"], "value": round(float(snapshot["value"]), 4)})
-    return month_end_points(merged)
-
-
-def build_card(config, pe_points, pb_points, snapshots):
-    pe_points = merge_snapshot_point(pe_points, snapshots.get("pe"))
-    pb_points = merge_snapshot_point(pb_points, snapshots.get("pb"))
-
+def build_card(config, pe_points, pb_points):
     return {
         "id": config["id"],
         "name": config["name"],
@@ -978,7 +872,6 @@ def build_card(config, pe_points, pb_points, snapshots):
             "pe": pe_points,
             "pb": pb_points,
         },
-        "snapshots": snapshots,
     }
 
 
@@ -986,27 +879,24 @@ def fetch_legu_points(legu_client, config):
     if config["type"] == "all_a":
         pe_rows = legu_client.fetch_all_a_pe()
         pb_rows = legu_client.fetch_all_a_pb()
-        return normalize_points(pe_rows, "averagePETTM"), normalize_points(pb_rows, "equalWeightAveragePB")
+        return normalize_points(pe_rows, config.get("pe_key", "averagePETTM")), normalize_points(
+            pb_rows, config.get("pb_key", "equalWeightAveragePB")
+        )
 
     if config["type"] == "market":
         pe_rows = legu_client.fetch_market_pe(config["market_id"])
         pb_rows = legu_client.fetch_market_pb(config["market_id"])
-        return normalize_points(pe_rows, "pe"), normalize_points(pb_rows, "addPb")
+        return normalize_points(pe_rows, config.get("pe_key", "pe")), normalize_points(pb_rows, config.get("pb_key", "addPb"))
 
     pe_rows = legu_client.fetch_index_pe(config["index_code"])
     pb_rows = legu_client.fetch_index_pb(config["index_code"])
-    return normalize_points(pe_rows, config.get("legu_pe_key", "ttmPe")), normalize_points(pb_rows, "addPb")
+    return normalize_points(pe_rows, config.get("pe_key", "addTtmPe")), normalize_points(pb_rows, config.get("pb_key", "addPb"))
 
 
-def build_cards(danjuan_snapshots):
+def build_cards():
     cards = []
     legu_client = LeguClient()
     for config in CARD_CONFIGS:
-        snapshots = {}
-        danjuan_item = danjuan_snapshots.get(config.get("danjuan_code")) if config.get("danjuan_code") else None
-        if danjuan_item:
-            snapshots = build_snapshots(danjuan_item)
-
         pe_points = []
         pb_points = []
         try:
@@ -1019,7 +909,7 @@ def build_cards(danjuan_snapshots):
                 pe_points = []
                 pb_points = []
 
-        cards.append(build_card(config, pe_points, pb_points, snapshots))
+        cards.append(build_card(config, pe_points, pb_points))
 
     return cards
 
@@ -1030,9 +920,6 @@ def latest_date(cards):
         for metric in card["metrics"].values():
             if metric:
                 candidates.append(metric[-1]["date"])
-        for snapshot in card.get("snapshots", {}).values():
-            if snapshot and snapshot.get("date"):
-                candidates.append(snapshot["date"])
     return max(candidates)
 
 
@@ -1041,30 +928,8 @@ def build_html(payload):
     return HTML_TEMPLATE.replace("__DATA__", data_json)
 
 
-def build_live_payload(base_payload):
-    payload = json.loads(json.dumps(base_payload, ensure_ascii=False))
-    cards_by_id = {card["id"]: card for card in payload["cards"]}
-
-    danjuan_snapshots = DanjuanClient().fetch_snapshots()
-    for config in CARD_CONFIGS:
-        card = cards_by_id.get(config["id"])
-        if not card:
-            continue
-
-        danjuan_item = danjuan_snapshots.get(config.get("danjuan_code")) if config.get("danjuan_code") else None
-        if danjuan_item:
-            snapshots = build_snapshots(danjuan_item)
-            card["snapshots"] = snapshots
-            for metric_key in ("pe", "pb"):
-                card["metrics"][metric_key] = merge_snapshot_point(card["metrics"].get(metric_key, []), snapshots.get(metric_key))
-
-    payload["updated_at"] = latest_date(payload["cards"])
-    return payload
-
-
 def build_payload():
-    danjuan_client = DanjuanClient()
-    cards = build_cards(danjuan_client.fetch_snapshots())
+    cards = build_cards()
     return {
         "updated_at": latest_date(cards),
         "cards": cards,

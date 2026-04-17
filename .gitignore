@@ -1,9 +1,11 @@
 *
 !.gitignore
+!AGENTS.md
+!.github/
+!.github/workflows/
+!.github/workflows/update-dashboard.yml
 !README.md
-!app.py
 !api/
-!api/index.py
 !api/data.py
 !requirements.txt
 !start_valuation_dashboard.bat
